@@ -1,0 +1,12 @@
+{
+  "name": "connect5-solver",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Connect 5 (gravity, 7x9) - maximum-strength engine + mobile PWA",
+  "scripts": {
+    "test": "node --test",
+    "serve": "python -m http.server 8000",
+    "genbook": "node tools/genbook.js"
+  }
+}

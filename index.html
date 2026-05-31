@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+    <meta name="theme-color" content="#0b1020" />
+    <title>Connect 5</title>
+    <meta name="description" content="Connect 5 on a 7x9 board against a maximum-difficulty AI." />
+
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="assets/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="assets/icon.svg" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Connect 5" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="mobile-web-app-capable" content="yes" />
+
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <h1 class="title">Connect<span>5</span></h1>
+        <p class="tag">7 × 9 · drop to connect five · max&nbsp;AI</p>
+      </header>
+
+      <section class="status" id="status" aria-live="polite">
+        <span class="status-dot" id="statusDot"></span>
+        <span class="status-text" id="statusText">Your move</span>
+      </section>
+
+      <main class="board-wrap">
+        <div class="board" id="board" role="grid" aria-label="Connect 5 board"></div>
+      </main>
+
+      <section class="controls">
+        <div class="seg" role="group" aria-label="Who moves first">
+          <button class="seg-btn is-active" data-first="you">You first</button>
+          <button class="seg-btn" data-first="ai">AI first</button>
+        </div>
+        <div class="btns">
+          <button class="btn btn-primary" id="newGame">New game</button>
+          <button class="btn" id="hint">Hint</button>
+          <button class="btn" id="undo">Undo</button>
+        </div>
+      </section>
+    </div>
+
+    <div class="overlay" id="overlay" hidden>
+      <div class="overlay-card">
+        <div class="overlay-emblem" id="overlayEmblem"></div>
+        <h2 id="overlayTitle">You win!</h2>
+        <p id="overlaySub"></p>
+        <button class="btn btn-primary" id="overlayNew">Play again</button>
+      </div>
+    </div>
+
+    <script type="module" src="src/ui/app.js"></script>
+  </body>
+</html>
