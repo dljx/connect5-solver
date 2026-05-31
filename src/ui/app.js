@@ -189,6 +189,25 @@ function flashRec(col) {
   el.classList.add('rec');
 }
 
+// Outline only the most recently placed disc: green for the engine's move
+// (shown while waiting for the opponent's tap), red for the opponent's move
+// (shown while the AI is thinking).
+function markLastMove() {
+  boardEl.querySelectorAll('.last-you, .last-opp').forEach((d) =>
+    d.classList.remove('last-you', 'last-opp'),
+  );
+  const hist = board.history;
+  if (!hist.length) return;
+  const col = hist[hist.length - 1];
+  let row = -1;
+  for (let r = ROWS - 1; r >= 0; r--) {
+    if (board.cellAt(r, col) !== 0) { row = r; break; }
+  }
+  if (row < 0) return;
+  const cls = board.cellAt(row, col) === youPlayer ? 'last-you' : 'last-opp';
+  cells[col][row].querySelector('.disc')?.classList.add(cls);
+}
+
 // ---- Console & overlay -------------------------------------------------
 
 function setConsole(mode, label, value, sub) {
@@ -253,6 +272,7 @@ async function drop(col) {
   state = 'animating';
   updatePlayable();
   renderDiscs({ col, row });
+  markLastMove();
   await wait(DROP_MS);
 }
 
@@ -291,6 +311,7 @@ function undo() {
   hideOverlay();
   clearWinHighlight();
   renderDiscs();
+  markLastMove();
   if (board.currentPlayer === youPlayer) youTurn();
   else toOppInput();
 }

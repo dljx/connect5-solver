@@ -22,6 +22,9 @@
   --opp-1: #1f9bbd;
   --opp-glow: #43e8d8;
 
+  --last-you: #2ecc40; /* green ring: latest engine move */
+  --last-opp: #ff4136; /* red ring: latest opponent move */
+
   --radius: 20px;
   --drop-ms: 380ms;
   --gap: clamp(3px, 1.3vw, 7px);
@@ -226,6 +229,23 @@ body {
 .disc.win { animation: winglow 1s ease-in-out infinite; z-index: 2; }
 @keyframes winglow {
   50% { box-shadow: 0 0 20px 6px var(--glow), inset 0 3px 6px rgba(255, 255, 255, 0.55); }
+}
+
+/* Outline the most recent move: green = engine, red = opponent. */
+.disc.last-you, .disc.last-opp { z-index: 3; }
+.disc.last-you {
+  box-shadow:
+    inset 0 0 0 3px var(--last-you),
+    inset 0 3px 6px rgba(255, 255, 255, 0.45),
+    0 2px 5px rgba(0, 0, 0, 0.45),
+    0 0 12px 1px rgba(46, 204, 64, 0.7);
+}
+.disc.last-opp {
+  box-shadow:
+    inset 0 0 0 3px var(--last-opp),
+    inset 0 3px 6px rgba(255, 255, 255, 0.45),
+    0 2px 5px rgba(0, 0, 0, 0.45),
+    0 0 12px 1px rgba(255, 65, 54, 0.65);
 }
 
 .col-labels {
