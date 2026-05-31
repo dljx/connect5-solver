@@ -8,7 +8,7 @@
 import { Board, ROWS, COLS } from '../engine/engine.js';
 import { WINDOWS } from '../engine/constants.js';
 
-const AI_TIME_MS = 2000; // "max difficulty" think budget per move
+const AI_TIME_MS = 4000; // "max difficulty" think budget per move
 const DROP_MS = 380; // matches the CSS drop animation
 
 const $ = (id) => document.getElementById(id);
@@ -23,10 +23,12 @@ let board = new Board();
 let youPlayer = 1; // engine side (your moves)
 let oppPlayer = 2; // tapped side (opponent)
 let firstChoice = 'you'; // 'you' | 'opp'
-let state = 'idle'; // 'opp-input' | 'you-thinking' | 'animating' | 'over'
+let state = 'idle'; // 'opp-input' | 'you-thinking' | 'animating' | 'over' | 'editing'
 let cells = [];
 let worker = null;
 let fallbackBookLoaded = false;
+let editGrid = null; // grid[col][row] while in "Fix board" mode
+let editBrush = 1; // player number the editor currently paints
 
 // ---- Engine plumbing ---------------------------------------------------
 
@@ -39,7 +41,9 @@ function setupWorker() {
 }
 
 async function computeMove() {
-  const moves = board.history.slice();
+  // Send the actual board state (a cell grid) rather than a move list, so this
+  // works even after "Fix board" rebuilds the position with no move history.
+  const grid = gridFromBoard();
   if (worker) {
     return new Promise((resolve) => {
       const onMsg = (ev) => {
@@ -47,7 +51,7 @@ async function computeMove() {
         resolve(ev.data);
       };
       worker.addEventListener('message', onMsg);
-      worker.postMessage({ moves, timeMs: AI_TIME_MS });
+      worker.postMessage({ grid, timeMs: AI_TIME_MS });
     });
   }
   const [{ bestMove }, bookMod] = await Promise.all([
@@ -59,7 +63,7 @@ async function computeMove() {
     fallbackBookLoaded = true;
   }
   await wait(20);
-  const b = Board.fromMoves(moves);
+  const b = Board.fromCells(grid);
   const booked = bookMod.bookMove(b);
   if (booked >= 0) return { col: booked, book: true };
   return bestMove(b, { timeMs: AI_TIME_MS });
@@ -82,6 +86,12 @@ function buildBoard() {
     for (let r = ROWS - 1; r >= 0; r--) {
       const cell = document.createElement('div');
       cell.className = 'cell';
+      cell.addEventListener('click', (e) => {
+        if (state === 'editing') {
+          e.stopPropagation();
+          editTapCell(c, r);
+        }
+      });
       col.appendChild(cell);
       cells[c][r] = cell;
     }
@@ -213,20 +223,25 @@ function hideOverlay() {
 // ---- Game flow ---------------------------------------------------------
 
 function checkEnd() {
+  // Keep the finished board on screen (no auto-reset / blocking pop-up); the
+  // result goes to the readout and the user starts over with New game when ready.
   if (board.wins()) {
     state = 'over';
     updatePlayable();
     highlightWin();
     const youWon = board.winner === youPlayer;
-    setConsole(youWon ? 'play' : 'await', 'Game over', youWon ? 'WIN' : 'LOSS', youWon ? 'Your line connected' : 'Opponent connected five');
-    showOverlay(board.winner);
+    setConsole(
+      youWon ? 'play' : 'await',
+      youWon ? 'You win' : 'Opponent wins',
+      youWon ? 'WIN' : 'LOSS',
+      'Board kept — press New game when you’re ready',
+    );
     return true;
   }
   if (board.isFull) {
     state = 'over';
     updatePlayable();
-    setConsole('think', 'Game over', '=', 'Draw — board full');
-    showOverlay(0);
+    setConsole('think', 'Draw', '=', 'Board kept — press New game when you’re ready');
     return true;
   }
   return false;
@@ -269,7 +284,8 @@ async function onColumn(col) {
 }
 
 function undo() {
-  if (state === 'you-thinking' || state === 'animating' || board.moves === 0) return;
+  if (state === 'you-thinking' || state === 'animating' || state === 'editing') return;
+  if (board._stack.length === 0) return; // nothing to step back (e.g. just after Fix board)
   board.undo();
   while (board.moves > 0 && board.currentPlayer === youPlayer) board.undo();
   hideOverlay();
@@ -294,6 +310,93 @@ function newGame() {
   else toOppInput();
 }
 
+// ---- Fix-board editor --------------------------------------------------
+// Lets the user make the on-screen board match the real, physical board after
+// a misplaced piece, then resume. Tap empty space to add a disc (it falls to
+// the lowest slot), tap a disc to remove it (the column collapses). The color
+// brush defaults to your discs since fixing your own move is the common case.
+
+function gridFromBoard() {
+  const g = [];
+  for (let c = 0; c < COLS; c++) {
+    g[c] = [];
+    for (let r = 0; r < ROWS; r++) g[c][r] = board.cellAt(r, c);
+  }
+  return g;
+}
+
+function renderEditGrid() {
+  for (let c = 0; c < COLS; c++) {
+    for (let r = 0; r < ROWS; r++) {
+      const cell = cells[c][r];
+      cell.innerHTML = '';
+      const v = editGrid[c][r];
+      if (!v) continue;
+      const disc = document.createElement('div');
+      disc.className = `disc ${classFor(v)}`;
+      disc.dataset.v = String(v);
+      cell.appendChild(disc);
+    }
+  }
+}
+
+function updateBrushUI() {
+  $('brushYou').classList.toggle('is-active', editBrush === youPlayer);
+  $('brushOpp').classList.toggle('is-active', editBrush === oppPlayer);
+}
+
+function editTapCell(c, r) {
+  const col = editGrid[c];
+  if (col[r] !== 0) {
+    // Remove the tapped disc; everything above it drops down one (stays gravity-valid).
+    for (let rr = r; rr < ROWS - 1; rr++) col[rr] = col[rr + 1];
+    col[ROWS - 1] = 0;
+  } else {
+    // Add a disc of the current brush to the lowest empty slot in this column.
+    for (let rr = 0; rr < ROWS; rr++) {
+      if (col[rr] === 0) {
+        col[rr] = editBrush;
+        break;
+      }
+    }
+  }
+  renderEditGrid();
+}
+
+function enterEdit() {
+  if (state === 'you-thinking' || state === 'animating') return;
+  state = 'editing';
+  editGrid = gridFromBoard();
+  editBrush = youPlayer;
+  hideOverlay();
+  clearWinHighlight();
+  clearPreviews();
+  renderEditGrid();
+  boardEl.classList.add('editing');
+  boardEl.classList.remove('playable');
+  $('fixBoard').classList.add('is-active');
+  $('editbar').hidden = false;
+  updateBrushUI();
+  setConsole('think', 'Fix board', '✎', 'Tap empty space to add · tap a disc to remove');
+}
+
+function doneEdit() {
+  if (state !== 'editing') return;
+  board = Board.fromCells(editGrid);
+  editGrid = null;
+  boardEl.classList.remove('editing');
+  $('fixBoard').classList.remove('is-active');
+  $('editbar').hidden = true;
+  clearWinHighlight();
+  renderDiscs();
+  if (board.isOver) {
+    checkEnd();
+    return;
+  }
+  if (board.currentPlayer === youPlayer) youTurn();
+  else toOppInput();
+}
+
 // ---- Wiring ------------------------------------------------------------
 
 function init() {
@@ -313,6 +416,11 @@ function init() {
   $('newGame').addEventListener('click', newGame);
   $('overlayNew').addEventListener('click', newGame);
   $('undo').addEventListener('click', undo);
+
+  $('fixBoard').addEventListener('click', () => (state === 'editing' ? doneEdit() : enterEdit()));
+  $('editDone').addEventListener('click', doneEdit);
+  $('brushYou').addEventListener('click', () => { editBrush = youPlayer; updateBrushUI(); });
+  $('brushOpp').addEventListener('click', () => { editBrush = oppPlayer; updateBrushUI(); });
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(() => {});

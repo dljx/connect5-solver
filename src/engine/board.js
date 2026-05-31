@@ -13,6 +13,7 @@ import {
   COLUMN_ORDER,
   isWin,
   mirrorBits,
+  popcount,
 } from './constants.js';
 
 export class Board {
@@ -28,6 +29,33 @@ export class Board {
   static fromMoves(cols) {
     const b = new Board();
     for (const c of cols) b.play(c);
+    return b;
+  }
+
+  /**
+   * Build a board directly from a grid of cell values, where grid[col][row] is
+   * 0 (empty), 1 (first player), or 2 (second player) and row 0 is the bottom.
+   * Used by the "Fix board" editor to resume from an arbitrary physical
+   * position. Columns are assumed filled bottom-up (the editor enforces this).
+   * The side to move is inferred from the disc counts. History is empty, so
+   * undo is unavailable until further moves are played.
+   */
+  static fromCells(grid) {
+    const b = new Board();
+    let p1 = 0n;
+    let p2 = 0n;
+    for (let c = 0; c < COLS; c++) {
+      for (let r = 0; r < ROWS; r++) {
+        const v = grid[c] ? grid[c][r] : 0;
+        if (!v) continue;
+        const bit = 1n << BigInt(c * H1 + r);
+        if (v === 1) p1 |= bit;
+        else p2 |= bit;
+      }
+    }
+    b.mask = p1 | p2;
+    b.moves = popcount(b.mask);
+    b.position = b.moves % 2 === 0 ? p1 : p2; // first player moves on even plies
     return b;
   }
 

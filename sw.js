@@ -1,7 +1,7 @@
 // Service worker: precache the app shell so the game loads instantly and works
 // offline (it runs entirely on-device). Bump CACHE when assets change.
 
-const CACHE = 'connect5-v4';
+const CACHE = 'connect5-v5';
 const ASSETS = [
   './',
   './index.html',

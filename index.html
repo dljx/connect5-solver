@@ -55,6 +55,16 @@
           <button class="btn btn-primary" id="newGame">New game</button>
           <button class="btn" id="undo">Undo</button>
         </div>
+        <button class="btn" id="fixBoard">✎ Fix board</button>
+
+        <div class="editbar" id="editbar" hidden>
+          <p class="edit-hint">Tap empty space to add a disc · tap a disc to remove it</p>
+          <div class="seg brush" role="group" aria-label="Disc color to place">
+            <button class="seg-btn" id="brushYou">Your disc</button>
+            <button class="seg-btn" id="brushOpp">Opponent</button>
+          </div>
+          <button class="btn btn-primary" id="editDone">Done — resume</button>
+        </div>
       </section>
 
       <footer class="legend">

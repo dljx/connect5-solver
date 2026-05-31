@@ -2,7 +2,16 @@
 // center-first move ordering, and a time budget. Exact when it can reach
 // terminal positions; otherwise it falls back to a heuristic at the horizon.
 
-import { COLUMN_ORDER, WINDOWS, popcount } from './constants.js';
+import {
+  COLS,
+  COLUMN_ORDER,
+  WINDOWS,
+  popcount,
+  isWin,
+  topMaskCol,
+  bottomMaskCol,
+  columnMaskCol,
+} from './constants.js';
 import { TranspositionTable, EXACT, LOWER, UPPER } from './transposition.js';
 
 // Win scores sit just below WIN_BASE; subtracting the disc count makes faster
@@ -10,12 +19,36 @@ import { TranspositionTable, EXACT, LOWER, UPPER } from './transposition.js';
 export const WIN_BASE = 100000;
 export const WIN_THRESHOLD = WIN_BASE - 1000;
 
+// A two-way threat the opponent can't be stopped from converting. Kept below
+// WIN_THRESHOLD so this *heuristic* verdict never masquerades as a proven mate
+// (which would wrongly stop iterative deepening at the root).
+const DOUBLE_THREAT = 90000;
+
 const WINDOW_WEIGHT = [0, 1, 10, 100, 1000]; // by disc count in an uncontested window
+
+/** How many distinct columns let `stones` complete a five right now (gravity-aware). */
+function playableWinCount(stones, mask) {
+  let n = 0;
+  for (let c = 0; c < COLS; c++) {
+    if ((mask & topMaskCol(c)) !== 0n) continue; // column full
+    const moveBit = (mask + bottomMaskCol(c)) & columnMaskCol(c);
+    if (isWin(stones | moveBit)) n++;
+  }
+  return n;
+}
 
 /** Heuristic score from the side-to-move's perspective. */
 export function evaluate(board) {
   const me = board.stonesOf(board.currentPlayer);
   const opp = board.stonesOf(3 - board.currentPlayer);
+  const mask = board.mask;
+
+  // The opponent replies from here. If they already have two or more separate
+  // playable winning moves, we can block at most one -> this position is lost.
+  // (Our own immediate wins are handled before evaluate() is ever reached.)
+  const oppThreats = playableWinCount(opp, mask);
+  if (oppThreats >= 2) return -DOUBLE_THREAT;
+
   let score = 0;
   for (const w of WINDOWS) {
     const p = popcount(me & w);
@@ -23,15 +56,34 @@ export function evaluate(board) {
     if (o === 0 && p > 0) score += WINDOW_WEIGHT[p];
     else if (p === 0 && o > 0) score -= WINDOW_WEIGHT[o];
   }
+  if (oppThreats === 1) score -= 600; // we'll be forced to spend our move blocking
   return score;
 }
 
-function orderedMoves(board, ttMove) {
-  const moves = board.legalMoves();
-  if (ttMove >= 0 && board.canPlay(ttMove)) {
-    return [ttMove, ...moves.filter((c) => c !== ttMove)];
+/**
+ * Order candidate moves to maximize alpha-beta cutoffs (deeper search per
+ * second): TT move and killer move first, central columns next, and moves that
+ * hand the opponent an immediate winning reply pushed to the back.
+ */
+function orderedMoves(board, ttMove, killer) {
+  const legal = board.legalMoves(); // already center-first
+  const scored = [];
+  for (let i = 0; i < legal.length; i++) {
+    const col = legal[i];
+    let s = legal.length - i; // center bias
+    if (col === ttMove) s += 100000;
+    if (col === killer) s += 5000;
+    board.play(col);
+    let gives = false;
+    for (const r of board.legalMoves()) {
+      if (board.isWinningMove(r)) { gives = true; break; }
+    }
+    board.undo();
+    if (gives) s -= 50000; // suicidal: lets the opponent win next move
+    scored.push([col, s]);
   }
-  return moves;
+  scored.sort((a, b) => b[1] - a[1]);
+  return scored.map((e) => e[0]);
 }
 
 function negamax(board, alpha, beta, depth, ctx) {
@@ -60,7 +112,8 @@ function negamax(board, alpha, beta, depth, ctx) {
 
   let best = -Infinity;
   let bestMove = -1;
-  for (const col of orderedMoves(board, ttMove)) {
+  const killer = ctx.killers[depth];
+  for (const col of orderedMoves(board, ttMove, killer)) {
     board.play(col);
     const score = -negamax(board, -beta, -alpha, depth - 1, ctx);
     board.undo();
@@ -69,7 +122,10 @@ function negamax(board, alpha, beta, depth, ctx) {
       bestMove = col;
     }
     if (best > alpha) alpha = best;
-    if (alpha >= beta) break; // beta cutoff
+    if (alpha >= beta) {
+      ctx.killers[depth] = col; // remember the move that caused this cutoff
+      break;
+    }
     if (ctx.deadline && performance.now() >= ctx.deadline) {
       ctx.timedOut = true;
       break;
@@ -104,6 +160,7 @@ export function bestMove(board, opts = {}) {
     nodes: 0,
     deadline: timeMs > 0 ? performance.now() + timeMs : 0,
     timedOut: false,
+    killers: [],
   };
 
   const legal = board.legalMoves();
@@ -118,7 +175,7 @@ export function bestMove(board, opts = {}) {
     let alpha = -Infinity;
     const beta = Infinity;
 
-    for (const col of orderedMoves(board, bestCol)) {
+    for (const col of orderedMoves(board, bestCol, -1)) {
       board.play(col);
       const score = -negamax(board, -beta, -alpha, depth - 1, ctx);
       board.undo();

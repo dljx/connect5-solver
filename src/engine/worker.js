@@ -8,9 +8,11 @@ import { bookMove, loadBook } from './book.js';
 const bookReady = loadBook(new URL('../../assets/book.json', import.meta.url));
 
 self.onmessage = async (e) => {
-  const { moves = [], timeMs = 1500, maxDepth = 60 } = e.data || {};
+  const { grid, moves = [], timeMs = 1500, maxDepth = 60 } = e.data || {};
   await bookReady;
-  const board = Board.fromMoves(moves);
+  // Prefer a full cell grid (works for "Fix board" positions that have no move
+  // history); fall back to a move list for older callers.
+  const board = grid ? Board.fromCells(grid) : Board.fromMoves(moves);
 
   const booked = bookMove(board);
   if (booked >= 0) {
