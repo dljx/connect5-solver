@@ -12,6 +12,7 @@ import {
   columnMaskCol,
   COLUMN_ORDER,
   isWin,
+  mirrorBits,
 } from './constants.js';
 
 export class Board {
@@ -124,5 +125,17 @@ export class Board {
   /** Unique reversible position key for the transposition table. */
   key() {
     return this.position + this.mask;
+  }
+
+  /**
+   * Canonical key under left-right mirror symmetry (the only symmetry gravity
+   * preserves). Returns the smaller of the position's key and its mirror's key,
+   * plus whether the mirror was chosen. Used to share book/TT entries between a
+   * position and its reflection.
+   */
+  canonical() {
+    const key = this.position + this.mask;
+    const mkey = mirrorBits(this.position) + mirrorBits(this.mask);
+    return mkey < key ? { key: mkey, mirrored: true } : { key, mirrored: false };
   }
 }

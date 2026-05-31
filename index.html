@@ -3,9 +3,9 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
-    <meta name="theme-color" content="#0b1020" />
-    <title>Connect 5</title>
-    <meta name="description" content="Connect 5 on a 7x9 board against a maximum-difficulty AI." />
+    <meta name="theme-color" content="#0a0b0e" />
+    <title>Connect Five · Solver</title>
+    <meta name="description" content="A Connect-5 solver on a 7x9 board: computes your perfect move so you can beat any opponent." />
 
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="assets/icon.svg" type="image/svg+xml" />
@@ -15,35 +15,52 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="mobile-web-app-capable" content="yes" />
 
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Hanken+Grotesk:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
+    <div class="grain" aria-hidden="true"></div>
+
     <div class="app">
       <header class="topbar">
-        <h1 class="title">Connect<span>5</span></h1>
-        <p class="tag">7 × 9 · drop to connect five · max&nbsp;AI</p>
+        <div class="mark" aria-hidden="true">5</div>
+        <div class="head-text">
+          <h1 class="title">CONNECT&nbsp;FIVE</h1>
+          <p class="tag">7×9 solver · plays your perfect move</p>
+        </div>
       </header>
 
-      <section class="status" id="status" aria-live="polite">
-        <span class="status-dot" id="statusDot"></span>
-        <span class="status-text" id="statusText">Your move</span>
+      <section class="console" id="console" data-mode="idle" aria-live="polite">
+        <span class="console-label" id="consoleLabel">Solver ready</span>
+        <span class="console-value" id="consoleValue">—</span>
+        <span class="console-sub" id="consoleSub">Pick who starts, then enter the opponent's moves</span>
       </section>
 
       <main class="board-wrap">
         <div class="board" id="board" role="grid" aria-label="Connect 5 board"></div>
+        <div class="col-labels" id="colLabels" aria-hidden="true"></div>
       </main>
 
       <section class="controls">
-        <div class="seg" role="group" aria-label="Who moves first">
-          <button class="seg-btn is-active" data-first="you">You first</button>
-          <button class="seg-btn" data-first="ai">AI first</button>
+        <div class="seg" role="group" aria-label="Who starts the game">
+          <button class="seg-btn is-active" data-first="you">You start first</button>
+          <button class="seg-btn" data-first="opp">Opponent starts first</button>
         </div>
         <div class="btns">
           <button class="btn btn-primary" id="newGame">New game</button>
-          <button class="btn" id="hint">Hint</button>
           <button class="btn" id="undo">Undo</button>
         </div>
       </section>
+
+      <footer class="legend">
+        <span><i class="dot you"></i>Your discs</span>
+        <span><i class="dot opp"></i>Opponent</span>
+      </footer>
     </div>
 
     <div class="overlay" id="overlay" hidden>
@@ -51,7 +68,7 @@
         <div class="overlay-emblem" id="overlayEmblem"></div>
         <h2 id="overlayTitle">You win!</h2>
         <p id="overlaySub"></p>
-        <button class="btn btn-primary" id="overlayNew">Play again</button>
+        <button class="btn btn-primary" id="overlayNew">New game</button>
       </div>
     </div>
 

@@ -36,6 +36,19 @@ export const BOARD_MASK = (() => {
   return m;
 })();
 
+// All H1 bits of a single column (used to reflect the board left-right).
+export const COLMASK = (1n << BigInt(H1)) - 1n;
+
+/** Reflect a bitboard horizontally: column c <-> column COLS-1-c. */
+export function mirrorBits(bb) {
+  let out = 0n;
+  for (let c = 0; c < COLS; c++) {
+    const col = (bb >> BigInt(c * H1)) & COLMASK;
+    out |= col << BigInt((COLS - 1 - c) * H1);
+  }
+  return out;
+}
+
 /**
  * True if `pos` (one player's disc bitboard) contains 5-or-more in a row in any
  * direction. Overlines (6+) naturally satisfy this. Three shift-ANDs per
