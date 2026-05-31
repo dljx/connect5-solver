@@ -76,18 +76,23 @@ body {
 }
 
 /* ---- Header ------------------------------------------------ */
-.topbar { display: flex; align-items: center; gap: 12px; }
-.head-text { min-width: 0; }
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 var(--gap); /* align with the board's inner grid edge */
+}
+.head-text { min-width: 0; flex: 1; }
 .mark {
   flex: none;
   display: grid;
   place-items: center;
-  width: 46px;
-  height: 46px;
-  border-radius: 13px;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
   font-family: var(--font-display);
   font-weight: 800;
-  font-size: 24px;
+  font-size: 21px;
   color: #1a1206;
   background: linear-gradient(150deg, var(--you-0), var(--you-1));
   box-shadow: 0 6px 18px rgba(255, 138, 61, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.5);
@@ -96,7 +101,7 @@ body {
   margin: 0;
   font-family: var(--font-display);
   font-weight: 800;
-  font-size: clamp(19px, 5.6vw, 30px);
+  font-size: clamp(16px, 4.4vw, 24px);
   letter-spacing: 0;
   line-height: 1;
 }
