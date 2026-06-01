@@ -65,7 +65,7 @@ export function evaluate(board) {
  * second): TT move and killer move first, central columns next, and moves that
  * hand the opponent an immediate winning reply pushed to the back.
  */
-function orderedMoves(board, ttMove, killer) {
+function orderedMoves(board, ttMove, killer, history) {
   const legal = board.legalMoves(); // already center-first
   const scored = [];
   for (let i = 0; i < legal.length; i++) {
@@ -73,6 +73,7 @@ function orderedMoves(board, ttMove, killer) {
     let s = legal.length - i; // center bias
     if (col === ttMove) s += 100000;
     if (col === killer) s += 5000;
+    if (history) s += Math.min(history[col] | 0, 4000); // history heuristic (capped)
     board.play(col);
     let gives = false;
     for (const r of board.legalMoves()) {
@@ -113,7 +114,7 @@ function negamax(board, alpha, beta, depth, ctx) {
   let best = -Infinity;
   let bestMove = -1;
   const killer = ctx.killers[depth];
-  for (const col of orderedMoves(board, ttMove, killer)) {
+  for (const col of orderedMoves(board, ttMove, killer, ctx.history)) {
     board.play(col);
     const score = -negamax(board, -beta, -alpha, depth - 1, ctx);
     board.undo();
@@ -124,6 +125,7 @@ function negamax(board, alpha, beta, depth, ctx) {
     if (best > alpha) alpha = best;
     if (alpha >= beta) {
       ctx.killers[depth] = col; // remember the move that caused this cutoff
+      ctx.history[col] += depth * depth; // reward moves that cause cutoffs
       break;
     }
     if (ctx.deadline && performance.now() >= ctx.deadline) {
@@ -161,6 +163,7 @@ export function bestMove(board, opts = {}) {
     deadline: timeMs > 0 ? performance.now() + timeMs : 0,
     timedOut: false,
     killers: [],
+    history: new Array(COLS).fill(0),
   };
 
   const legal = board.legalMoves();
@@ -175,7 +178,7 @@ export function bestMove(board, opts = {}) {
     let alpha = -Infinity;
     const beta = Infinity;
 
-    for (const col of orderedMoves(board, bestCol, -1)) {
+    for (const col of orderedMoves(board, bestCol, -1, ctx.history)) {
       board.play(col);
       const score = -negamax(board, -beta, -alpha, depth - 1, ctx);
       board.undo();

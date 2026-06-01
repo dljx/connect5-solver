@@ -8,8 +8,17 @@
 import { Board, ROWS, COLS } from '../engine/engine.js';
 import { WINDOWS } from '../engine/constants.js';
 
-const AI_TIME_MS = 4000; // "max difficulty" think budget per move
 const DROP_MS = 380; // matches the CSS drop animation
+const ENDGAME_CELLS = 18; // when this few cells remain, search harder toward an exact result
+
+// Think budget grows as the board fills: the late game is where exact play
+// matters most and the tree is small enough to search much deeper (or solve).
+function thinkBudget() {
+  const empty = ROWS * COLS - board.moves;
+  if (empty <= ENDGAME_CELLS) return 12000; // endgame: push toward an exact solve
+  if (empty <= 32) return 8000;
+  return 6000;
+}
 
 const $ = (id) => document.getElementById(id);
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -44,6 +53,7 @@ async function computeMove() {
   // Send the actual board state (a cell grid) rather than a move list, so this
   // works even after "Fix board" rebuilds the position with no move history.
   const grid = gridFromBoard();
+  const timeMs = thinkBudget();
   if (worker) {
     return new Promise((resolve) => {
       const onMsg = (ev) => {
@@ -51,7 +61,7 @@ async function computeMove() {
         resolve(ev.data);
       };
       worker.addEventListener('message', onMsg);
-      worker.postMessage({ grid, timeMs: AI_TIME_MS });
+      worker.postMessage({ grid, timeMs });
     });
   }
   const [{ bestMove }, bookMod] = await Promise.all([
@@ -66,7 +76,7 @@ async function computeMove() {
   const b = Board.fromCells(grid);
   const booked = bookMod.bookMove(b);
   if (booked >= 0) return { col: booked, book: true };
-  return bestMove(b, { timeMs: AI_TIME_MS });
+  return bestMove(b, { timeMs });
 }
 
 // ---- Rendering ---------------------------------------------------------
@@ -286,7 +296,13 @@ async function youTurn() {
   if (board.isOver) return;
   state = 'you-thinking';
   updatePlayable();
-  setConsole('think', 'Computing', '…', 'Finding your best move');
+  const endgame = ROWS * COLS - board.moves <= ENDGAME_CELLS;
+  setConsole(
+    'think',
+    endgame ? 'Solving endgame' : 'Computing',
+    '…',
+    endgame ? 'Searching to the end — a few seconds' : 'Finding your best move',
+  );
   const { col } = await computeMove();
   await drop(col);
   if (checkEnd()) return;
@@ -418,6 +434,19 @@ function doneEdit() {
   else toOppInput();
 }
 
+// Copy the move sequence so a lost game can be shared and replayed exactly.
+function copyGame() {
+  const txt = `connect5 start=${firstChoice} moves=${board.history.join(',')}`;
+  const btn = $('copyGame');
+  const restore = () => { btn.textContent = '⧉ Copy game'; };
+  const ok = () => { btn.textContent = 'Copied ✓'; setTimeout(restore, 1300); };
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(txt).then(ok).catch(() => { btn.textContent = txt; });
+  } else {
+    btn.textContent = txt; // last resort: show it so the user can copy manually
+  }
+}
+
 // ---- Wiring ------------------------------------------------------------
 
 function init() {
@@ -439,6 +468,7 @@ function init() {
   $('undo').addEventListener('click', undo);
 
   $('fixBoard').addEventListener('click', () => (state === 'editing' ? doneEdit() : enterEdit()));
+  $('copyGame').addEventListener('click', copyGame);
   $('editDone').addEventListener('click', doneEdit);
   $('brushYou').addEventListener('click', () => { editBrush = youPlayer; updateBrushUI(); });
   $('brushOpp').addEventListener('click', () => { editBrush = oppPlayer; updateBrushUI(); });
