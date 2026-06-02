@@ -95,3 +95,39 @@ test('Board: isWinningMove flags the finishing drop', () => {
   assert.equal(b.isWinningMove(0), true);
   assert.equal(b.isWinningMove(2), false);
 });
+
+// The fast cells/heights arrays must never diverge from the BigInt bitboards,
+// since the search relies on both via millions of play/undo cycles.
+test('Board: fast cell array stays in sync with the bitboards (random play + undo)', () => {
+  const colBit = (r, c) => 1n << BigInt(c * (ROWS + 1) + r);
+  for (let g = 0; g < 40; g++) {
+    const b = new Board();
+    let rng = (g + 1) * 2654435761;
+    const next = () => ((rng = (rng * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+    while (!b.isOver && b.moves < 63) {
+      // verify every cell agrees with stonesOf() and heights agree with the mask
+      const p1 = b.stonesOf(1);
+      const p2 = b.stonesOf(2);
+      for (let c = 0; c < COLS; c++) {
+        let h = 0;
+        for (let r = 0; r < ROWS; r++) {
+          const cell = b.cellAt(r, c);
+          const bit = colBit(r, c);
+          const fromBits = (p1 & bit) !== 0n ? 1 : (p2 & bit) !== 0n ? 2 : 0;
+          assert.equal(cell, fromBits, `cell (${r},${c}) game ${g} move ${b.moves}`);
+          if (cell !== 0) h = r + 1;
+        }
+        assert.equal(b.heights[c], h, `height col ${c}`);
+      }
+      const legal = b.legalMoves();
+      // occasionally undo to exercise the revert path
+      if (b.moves > 0 && next() < 0.25) {
+        const before = b.key();
+        b.play(legal[0]);
+        b.undo();
+        assert.equal(b.key(), before, 'undo did not restore key');
+      }
+      b.play(legal[Math.floor(next() * legal.length)]);
+    }
+  }
+});

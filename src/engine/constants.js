@@ -97,3 +97,20 @@ export const WINDOWS = (() => {
     for (let c = 0; c + WIN <= COLS; c++) add(line(r, c, -1, 1)); // diag down-right
   return wins;
 })();
+
+// The same length-5 windows, but as flat cell indices (col * ROWS + row) for the
+// fast array-based board. Used by the heuristic evaluation in the search.
+export const WINDOW_CELLS = (() => {
+  const out = [];
+  const line = (r, c, dr, dc) =>
+    Int32Array.from({ length: WIN }, (_, i) => (c + dc * i) * ROWS + (r + dr * i));
+  for (let r = 0; r < ROWS; r++)
+    for (let c = 0; c + WIN <= COLS; c++) out.push(line(r, c, 0, 1));
+  for (let c = 0; c < COLS; c++)
+    for (let r = 0; r + WIN <= ROWS; r++) out.push(line(r, c, 1, 0));
+  for (let r = 0; r + WIN <= ROWS; r++)
+    for (let c = 0; c + WIN <= COLS; c++) out.push(line(r, c, 1, 1));
+  for (let r = WIN - 1; r < ROWS; r++)
+    for (let c = 0; c + WIN <= COLS; c++) out.push(line(r, c, -1, 1));
+  return out;
+})();
