@@ -21,6 +21,15 @@ const DOUBLE_THREAT = 90000;
 
 const WINDOW_WEIGHT = [0, 1, 10, 100, 1000]; // by disc count in an uncontested window
 
+// Gravity-urgency bonuses: empty cells at low gravity depth (close to playable)
+// make a partial line far more dangerous than a buried one. These bonuses scale
+// the window score by how soon the threat could actually fire.
+const GRA_CAP = 4;                    // gravity depth ≥ this → no urgency contribution
+const GRA_WT  = [0, 0, 2, 15, 200];  // per gravity-unit, indexed by disc count in window
+// A 3-in-a-row with BOTH extending cells immediately playable is a double threat
+// in the making: the opponent will have two winning options in one move.
+const DOUBLE_LIVE_3 = 500;
+
 const NCELLS = ROWS * COLS;
 // Scratch threat-square maps, reused across evaluate() calls to avoid allocation.
 const threatMe = new Int8Array(NCELLS);
@@ -71,6 +80,8 @@ export function evaluate(board, scale = 1) {
     let o = 0;
     let empty = -1;
     let emptyCount = 0;
+    let gravSum = 0;  // sum of urgency contributions from empty cells
+    let liveCount = 0; // empties at gravity depth 0 (immediately playable)
     for (let i = 0; i < 5; i++) {
       const idx = win[i];
       const v = cells[idx];
@@ -79,10 +90,20 @@ export function evaluate(board, scale = 1) {
       else {
         emptyCount++;
         empty = idx;
+        // Gravity depth: how many discs must precede this cell in its column.
+        // idx = col*ROWS + row, so col = idx/ROWS|0, row = idx%ROWS.
+        const d = (idx % ROWS) - heights[(idx / ROWS) | 0];
+        if (d <= 0) { liveCount++; gravSum += GRA_CAP; }
+        else if (d < GRA_CAP) gravSum += GRA_CAP - d;
       }
     }
-    if (o === 0 && p > 0) score += WINDOW_WEIGHT[p];
-    else if (p === 0 && o > 0) score -= WINDOW_WEIGHT[o];
+    if (o === 0 && p > 0) {
+      score += WINDOW_WEIGHT[p] + GRA_WT[p] * gravSum;
+      if (p === 3 && liveCount === 2) score += DOUBLE_LIVE_3;
+    } else if (p === 0 && o > 0) {
+      score -= WINDOW_WEIGHT[o] + GRA_WT[o] * gravSum;
+      if (o === 3 && liveCount === 2) score -= DOUBLE_LIVE_3;
+    }
     if (emptyCount === 1) {
       if (p === 4 && o === 0) threatMe[empty] = 1;
       else if (o === 4 && p === 0) threatOpp[empty] = 1;
