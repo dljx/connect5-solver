@@ -67,6 +67,40 @@ test('evaluate scores a double-live 3-in-a-row higher urgency than a buried 3', 
   assert.ok(eA < eB, `double-live 3 (${eA}) should score worse for engine than buried 3 (${eB})`);
 });
 
+test('VCF detects and returns a multi-step forcing win instantly', () => {
+  // P1 to move. P1 has a horizontal four at row0 cols 1-4 with both ends
+  // (col0 and col5) immediately playable → double threat on the very first
+  // move. VCF should detect this and bestMove should return a proven-win score
+  // in under 50 ms (not via the slow IDA path).
+  const g = emptyGrid();
+  for (const c of [1, 2, 3, 4]) g[c][0] = 1;
+  // P2 filler to balance disc count (4 vs 4) → P1 to move
+  g[6][0] = 2; g[7][0] = 2; g[8][0] = 2; g[6][1] = 2;
+  const b = Board.fromCells(g);
+  assert.equal(b.currentPlayer, 1);
+  const t0 = performance.now();
+  const { col, score } = bestMove(b, { timeMs: 6000 });
+  const ms = performance.now() - t0;
+  // VCF pre-check should fire and return immediately (< 100 ms)
+  assert.ok(ms < 100, `VCF should return instantly, took ${ms.toFixed(0)}ms`);
+  assert.ok(score >= WIN_THRESHOLD, `expected winning score, got ${score}`);
+  assert.ok(col === 0 || col === 5, `expected VCF move col0 or col5, got ${col}`);
+});
+
+test('bestMove avoids moves that give opponent a VCF win sequence', () => {
+  // P1 to move. P2 already has a horizontal four at row0 cols 2-5 with both
+  // ends (col1, col6) open — any P1 move that doesn't block gives P2 a
+  // double-threat win. bestMove must choose col1 or col6 to block.
+  const g = emptyGrid();
+  for (const c of [2, 3, 4, 5]) g[c][0] = 2;
+  // 4 scattered P1 discs (no P1 line of 4) → 8 total → P1 to move
+  g[6][0] = 1; g[7][0] = 1; g[8][0] = 1; g[8][1] = 1;
+  const b = Board.fromCells(g);
+  assert.equal(b.currentPlayer, 1);
+  const { col } = bestMove(b, { timeMs: 500 });
+  assert.ok(col === 1 || col === 6, `must block at col1 or col6, got ${col}`);
+});
+
 test('forcing extensions find a deep win that fits within the depth budget', () => {
   // A vertical mate-in-1 found at shallow depth (sanity that search + extensions
   // still return proven wins and never regress immediate tactics).

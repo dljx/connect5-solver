@@ -159,6 +159,108 @@ export function evaluate(board, scale = 1) {
   return score;
 }
 
+// ─── VCF (Victory by Continuous Forcing) search ───────────────────────────
+//
+// Standard alpha-beta can't see forcing sequences 25+ plies deep. VCF only
+// searches moves that create an immediately-playable winning square ("four
+// threat") for the attacker, then the single forced block by the defender,
+// and recurses. The tree is extremely narrow (1-3 threat moves × 1 forced
+// response per ply-pair), so a 28-ply sequence costs ~a few hundred nodes.
+//
+// Used at the root of each engine turn to:
+//   (a) detect our own forcing wins and return them instantly, and
+//   (b) tag moves that hand the opponent a VCF sequence so they are
+//       placed last in root move ordering — effectively avoiding them.
+
+const VCF_PLY = 28;        // max depth of forcing chain to search
+const VCF_WIN_CAP  = 80000; // node budget for checking if engine has VCF
+const VCF_MOVE_CAP = 8000;  // node budget per move for opponent-VCF detection
+
+/**
+ * Returns true if the side to move can force a win via a continuous chain of
+ * four-threats. `nodes.n` is incremented for each position examined; search
+ * aborts early (returning false) if `nodes.n` exceeds `nodes.cap`.
+ *
+ * `trace`, if provided, will have `trace.col` set to the first VCF move when
+ * a win is found — used by the caller to return the actual winning column.
+ */
+function vcfWin(board, maxPly, nodes, trace) {
+  if (++nodes.n > nodes.cap) return false;
+
+  const me = board.currentPlayer;
+  const { cells, heights } = board;
+
+  // Immediate win (base case — also the anchor of each recursive call).
+  for (let c = 0; c < COLS; c++) {
+    if (heights[c] < ROWS && makesFive(cells, heights[c], c, me)) return true;
+  }
+  if (maxPly <= 0) return false;
+
+  // Try every column as a potential threat move, center-first for best pruning.
+  for (let i = 0; i < COLS; i++) {
+    const c = COLUMN_ORDER[i];
+    const r = heights[c];
+    if (r >= ROWS) continue;
+
+    // Tentatively place to count how many winning squares I'd have afterwards.
+    cells[c * ROWS + r] = me;
+    heights[c] = r + 1;
+
+    let nThreats = 0;
+    let tc1 = -1; // the single threatened column (if nThreats === 1)
+    for (let tc = 0; tc < COLS; tc++) {
+      const tr = heights[tc];
+      if (tr < ROWS && makesFive(cells, tr, tc, me)) {
+        nThreats++;
+        tc1 = tc;
+        if (nThreats >= 2) break;
+      }
+    }
+
+    cells[c * ROWS + r] = 0; // revert tentative
+    heights[c] = r;
+
+    if (nThreats === 0) continue; // not a threat move — skip
+
+    // Commit the move properly (updates bitboards for key/TT correctness).
+    board.play(c);
+
+    if (nThreats >= 2) {
+      // Double threat: opponent can only block one → we win.
+      if (trace && trace.col < 0) trace.col = c;
+      board.undo();
+      return true;
+    }
+
+    // Single threat at column tc1. Opponent MUST block there — unless they
+    // have an immediate win of their own (which they'd play instead).
+    const opp = 3 - me;
+    let oppWins = false;
+    for (let oc = 0; oc < COLS; oc++) {
+      if (board.heights[oc] < ROWS && makesFive(board.cells, board.heights[oc], oc, opp)) {
+        oppWins = true;
+        break;
+      }
+    }
+
+    let found = false;
+    if (!oppWins && board.canPlay(tc1)) {
+      board.play(tc1); // force the block
+      found = vcfWin(board, maxPly - 2, nodes, null); // null: don't re-trace
+      board.undo();
+    }
+
+    board.undo(); // undo our threat move c
+
+    if (found) {
+      if (trace && trace.col < 0) trace.col = c;
+      return true;
+    }
+  }
+
+  return false;
+}
+
 /** Would playing `col` hand the opponent an immediate winning reply? (cells-only, no BigInt). */
 function givesOpponentWin(board, col) {
   const { cells, heights } = board;
@@ -178,11 +280,12 @@ function givesOpponentWin(board, col) {
 }
 
 /**
- * Order candidate moves to maximize alpha-beta cutoffs (deeper search per
- * second): TT move and killer move first, central columns next, and moves that
- * hand the opponent an immediate winning reply pushed to the back.
+ * Order candidate moves to maximize alpha-beta cutoffs: TT move and killer
+ * first, central columns next, moves handing opponent an immediate reply
+ * pushed back. At the root, `vcfLosing` (a Set of columns) marks moves that
+ * give the opponent a full VCF forcing win — those are penalised even harder.
  */
-function orderedMoves(board, ttMove, killer, history) {
+function orderedMoves(board, ttMove, killer, history, vcfLosing) {
   const legal = board.legalMoves(); // already center-first
   const scored = [];
   for (let i = 0; i < legal.length; i++) {
@@ -191,7 +294,8 @@ function orderedMoves(board, ttMove, killer, history) {
     if (col === ttMove) s += 100000;
     if (col === killer) s += 5000;
     if (history) s += Math.min(history[col] | 0, 4000); // history heuristic (capped)
-    if (givesOpponentWin(board, col)) s -= 50000; // suicidal: lets the opponent win next move
+    if (givesOpponentWin(board, col)) s -= 50000; // suicidal: lets opponent win next move
+    if (vcfLosing?.has(col)) s -= 80000; // gives opponent a full VCF forcing win
     scored.push([col, s]);
   }
   scored.sort((a, b) => b[1] - a[1]);
@@ -278,9 +382,36 @@ export function bestMove(board, opts = {}) {
     }
   }
 
+  // ── VCF root analysis ───────────────────────────────────────────────────
+  // Run once per engine turn (not per search node): cheap relative to IDA.
+  // Skip in the very early game (< 12 moves) where VCF sequences are rare.
+  let vcfNodes = 0;
+  const vcfLosing = new Set(); // moves that hand the opponent a VCF forcing win
+
+  if (board.moves >= 12) {
+    // (a) Can WE force a win via a VCF chain right now?
+    const trace = { col: -1 };
+    const winNodes = { n: 0, cap: VCF_WIN_CAP };
+    if (vcfWin(board, VCF_PLY, winNodes, trace)) {
+      const vcfCol = trace.col >= 0 ? trace.col : board.legalMoves()[0];
+      return { col: vcfCol, score: WIN_BASE - board.moves, depth: VCF_PLY, nodes: winNodes.n };
+    }
+    vcfNodes = winNodes.n;
+
+    // (b) Which of our moves hand the OPPONENT a VCF forcing win?
+    for (const c of board.legalMoves()) {
+      board.play(c);
+      const loseNodes = { n: 0, cap: VCF_MOVE_CAP };
+      if (vcfWin(board, VCF_PLY, loseNodes, null)) vcfLosing.add(c);
+      vcfNodes += loseNodes.n;
+      board.undo();
+    }
+  }
+  // ────────────────────────────────────────────────────────────────────────
+
   const ctx = {
     tt: opts.tt ?? new TranspositionTable(),
-    nodes: 0,
+    nodes: vcfNodes,
     deadline: timeMs > 0 ? performance.now() + timeMs : 0,
     timedOut: false,
     killers: [],
@@ -301,7 +432,8 @@ export function bestMove(board, opts = {}) {
     let alpha = -Infinity;
     const beta = Infinity;
 
-    for (const col of orderedMoves(board, bestCol, -1, ctx.history)) {
+    // Pass vcfLosing to root ordering only — not to recursive nodes.
+    for (const col of orderedMoves(board, bestCol, -1, ctx.history, vcfLosing)) {
       board.play(col);
       const forcing = ctx.useExt && playableWins(board, 3 - board.currentPlayer) >= 1;
       const score = -negamax(board, -beta, -alpha, forcing ? depth : depth - 1, ctx, forcing ? MAX_EXT - 1 : MAX_EXT);
